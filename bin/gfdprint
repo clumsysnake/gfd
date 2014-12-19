@@ -1,0 +1,72 @@
+#!/usr/bin/env ruby
+
+require_relative '../gfd.rb'
+
+def print(entries)
+  entries.each do |e|
+    if e[:type] == :dir
+      puts e[:path] + GFD::SEP
+    elsif e[:type] == :file
+      puts e[:path] + " #{e[:size]/1024}K, mtime: #{e[:mtime]}".force_encoding('utf-16le')
+    end
+  end
+end
+
+def delete_empty_unknown_dirs(entries)
+  entries_hash = {}
+  entries.each {|e| entries_hash[e[:path]] = e }
+
+  dirs = Dir.glob("#{File.expand_path(entries.first, base)}/**/*").select {|f| File.directory? f}
+  puts "found #{dirs.length} dirs under #{base}"
+
+  deletable_dirs = dirs.select do |dir, props|
+    relative_dir = Pathname.new(dir).relative_path_from(Pathname(base)).to_s
+    absolute_dir = File.expand_path(dir, base).to_s
+    if entries_hash[relative_dir.encode('utf-16le')].nil? and Dir.exists?(absolute_dir) and Dir.entries(absolute_dir).length == 2
+      true
+    else
+      false
+    end
+  end
+end
+
+def fix_dates_and_casing(entries, base)
+  entries.each do |e|
+    path = File.expand_path(e[:path].encode('UTF-8'), base)
+    if File.exists? path
+      #rename with proper case for icase filesystems (use case here is CI HFS)
+      actual_path = Dir.glob(path, File::FNM_CASEFOLD).first
+      if actual_path == nil
+        puts "Cannot determine if #{path}'s filename has the proper casing. skipping."
+      elsif actual_path != path
+        puts "Casing of #{actual_path} is wrong, should be #{path}. Fixing."
+        File.rename(actual_path, path)
+      end
+
+      case e[:type]
+      when :file
+        stat = File.stat(path)
+        if stat.mtime != e[:mtime]
+          puts "#{path} mtime is wrong, changing from #{stat.mtime} to #{e[:mtime]}"
+          File.utime(stat.atime, e[:mtime], path) #fix modified time
+        end
+      end
+    else
+      puts "#{path} cannot be found"
+    end
+  end
+end
+
+fname = ARGV[0]
+raise "Must pass filename of manifest" unless fname
+raise "#{fname} does not exist" unless File.exists? fname
+
+print(GFD.new(fname).entries)
+
+# base = ARGV[1]
+# raise "base dir for comparison must exist" unless base and File.exists? base
+
+#CRZ: be careful, these only worked on my filesystem! i advise noop'ing to start.
+
+# fix_dates_and_casing(GFD.new(fname).entries, base)
+# delete_empty_unknown_dirs(GFD.new(fname).entries, base)
