@@ -2,6 +2,8 @@
 
 require_relative '../gfd.rb'
 
+require 'fileutils'
+
 def print(entries)
   entries.each do |e|
     if e[:type] == :dir
@@ -12,24 +14,25 @@ def print(entries)
   end
 end
 
-def delete_empty_unknown_dirs(entries)
+def delete_empty_unknown_dirs(entries, base)
   entries_hash = {}
   entries.each {|e| entries_hash[e[:path]] = e }
 
-  dirs = Dir.glob("#{File.expand_path(entries.first, base)}/**/*").select {|f| File.directory? f}
+  dirs = Dir.glob("#{File.expand_path(entries.first[:path].encode('utf-8'), base)}/**/*").select {|f| File.directory? f}
   puts "found #{dirs.length} dirs under #{base}"
 
-  deletable_dirs = dirs.select do |dir, props|
+  dirs.each do |dir, props|
     relative_dir = Pathname.new(dir).relative_path_from(Pathname(base)).to_s
     absolute_dir = File.expand_path(dir, base).to_s
+
     if entries_hash[relative_dir.encode('utf-16le')].nil? and Dir.exists?(absolute_dir) and Dir.entries(absolute_dir).length == 2
-      true
-    else
-      false
+      puts "Deleting #{absolute_dir}"
+      FileUtils.rmdir(absolute_dir)
     end
   end
 end
 
+#CRZ: TODO: this renames even if the dir is wrongly cased, not the filename.
 def fix_dates_and_casing(entries, base)
   entries.each do |e|
     path = File.expand_path(e[:path].encode('UTF-8'), base)
@@ -65,8 +68,5 @@ print(GFD.new(fname).entries)
 
 # base = ARGV[1]
 # raise "base dir for comparison must exist" unless base and File.exists? base
-
-#CRZ: be careful, these only worked on my filesystem! i advise noop'ing to start.
-
 # fix_dates_and_casing(GFD.new(fname).entries, base)
 # delete_empty_unknown_dirs(GFD.new(fname).entries, base)
